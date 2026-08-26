@@ -1,0 +1,5 @@
+{
+  "appId": "com.prayerwall.app",
+  "appName": "守望代祷墙",
+  "webDir": "client/dist"
+}

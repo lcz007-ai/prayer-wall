@@ -1,0 +1,42 @@
+{
+  "name": "prayer-wall",
+  "version": "1.0.0",
+  "private": true,
+  "description": "教会内部代祷贴纸墙",
+  "scripts": {
+    "dev": "concurrently -k \"npm:dev:server\" \"npm:dev:client\"",
+    "dev:server": "node --watch server/index.js",
+    "dev:client": "vite",
+    "build": "vite build",
+    "build:app": "vite build && cap sync android",
+    "app:open": "cap open android",
+    "seed": "node scripts/seed.js",
+    "start": "node server/index.js",
+    "test": "node --test test/api.test.js",
+    "test:smoke": "node test/smoke.mjs"
+  },
+  "dependencies": {
+    "@alicloud/dysmsapi20170525": "^2.0.0",
+    "@alicloud/openapi-client": "^0.4.6",
+    "@capacitor/android": "^8.5.0",
+    "@capacitor/cli": "^8.5.0",
+    "@capacitor/core": "^8.5.0",
+    "better-sqlite3": "^13.0.3",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "lucide-vue-next": "^0.407.0",
+    "vue": "^3.4.31"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.0.5",
+    "china-division": "^2.7.0",
+    "concurrently": "^8.2.2",
+    "playwright-core": "^1.62.1",
+    "supertest": "^7.0.0",
+    "vite": "^5.3.3"
+  },
+  "allowScripts": {
+    "esbuild@0.21.5": true,
+    "better-sqlite3@13.0.3": true
+  }
+}
