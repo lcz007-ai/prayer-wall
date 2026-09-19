@@ -417,6 +417,7 @@ select:focus {
 
 .sticker {
   --tilt: 0deg;
+  position: relative;
   break-inside: avoid;
   margin-bottom: 12px;
   padding: 16px;
@@ -931,4 +932,29 @@ select:focus {
 .load-more-btn:disabled {
   opacity: 0.6;
   cursor: default;
+}
+
+/* 已蒙应允 */
+.sticker-answered {
+  outline: 2px solid #7fb77e;
+  background: linear-gradient(160deg, #f2f9ef, #fff);
+}
+
+.answered-badge {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #e4f3e0;
+  color: #3d7a3a;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.action-btn.answered {
+  color: #3d7a3a;
 }

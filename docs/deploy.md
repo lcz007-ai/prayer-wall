@@ -60,6 +60,7 @@ ACCESS_PASSWORD=
 - `SESSION_SECRET`：请务必改成随机长字符串。
 - `RATE_LIMIT_MAX`：/api/auth 每分钟每 IP 请求上限，默认 60。
 - `TRUST_PROXY`：宝塔/nginx 反代部署**必须设为 true**，否则限流把所有用户算作同一个反代 IP，会集体误伤。
+- 发送验证码限频与登录防爆破计数中，验证码限频（codeStore）为**单实例内存版**：PM2 重启或多实例部署时会重置/不共享；当前单实例部署无影响，扩容时需改用共享存储（如 Redis）。
 
 ## 5. 用 PM2 启动
 

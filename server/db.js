@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS posts (
   city TEXT NOT NULL DEFAULT '',
   district TEXT NOT NULL DEFAULT '',
   pray_count INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'open',
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -97,6 +98,11 @@ function initDb(dbPath) {
   const codeCols = db.prepare('PRAGMA table_info(verification_codes)').all().map((c) => c.name);
   if (!codeCols.includes('failed_attempts')) {
     db.exec('ALTER TABLE verification_codes ADD COLUMN failed_attempts INTEGER NOT NULL DEFAULT 0');
+  }
+  // 旧库迁移：posts 补 status 列（已蒙应允状态）
+  const postCols = db.prepare('PRAGMA table_info(posts)').all().map((c) => c.name);
+  if (!postCols.includes('status')) {
+    db.exec("ALTER TABLE posts ADD COLUMN status TEXT NOT NULL DEFAULT 'open'");
   }
   return db;
 }

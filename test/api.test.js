@@ -467,3 +467,51 @@ test('session token 哈希存储：库中无明文 token', async () => {
   const me = await agent.get('/api/auth/me');
   assert.equal(me.status, 200); // 哈希校验链路正常
 });
+
+test('已蒙应允：发布人可标记，他人不可，状态往返', async () => {
+  const owner = request.agent(app);
+  await loginAs(owner, '13000000001');
+  await setRegion(owner, '浙江省', '杭州市', '西湖区');
+  const created = await owner.post('/api/posts').send({ content: '为家人健康祷告', tags: ['健康'] });
+  const postId = created.body.post.id;
+
+  const other = request.agent(app);
+  await loginAs(other, '13000000002');
+  const denied = await other.post(`/api/posts/${postId}/answer`).send({ status: 'answered' });
+  assert.equal(denied.status, 403);
+
+  const bad = await owner.post(`/api/posts/${postId}/answer`).send({ status: 'done' });
+  assert.equal(bad.status, 400);
+
+  const ok = await owner.post(`/api/posts/${postId}/answer`).send({ status: 'answered' });
+  assert.equal(ok.status, 200);
+  assert.equal(ok.body.status, 'answered');
+  assert.equal(db.prepare(`SELECT status FROM posts WHERE id = ?`).get(postId).status, 'answered');
+
+  // 列表与新建返回都带 status
+  const list = await owner.get('/api/posts?scope=mine');
+  assert.equal(list.body.posts.find((p) => p.id === postId).status, 'answered');
+
+  const back = await owner.post(`/api/posts/${postId}/answer`).send({ status: 'open' });
+  assert.equal(back.body.status, 'open');
+});
+
+test('已归档帖子祷告返回 410 而非 404', async () => {
+  const agent = request.agent(app);
+  await loginAs(agent, '13000000003');
+  await setRegion(agent, '浙江省', '杭州市', '西湖区');
+  const created = await agent.post('/api/posts').send({ content: '归档边界', tags: [] });
+  const postId = created.body.post.id;
+  db.prepare(`UPDATE posts SET created_at = datetime('now', '-31 days') WHERE id = ?`).run(postId);
+
+  const res = await agent.post(`/api/posts/${postId}/pray`);
+  assert.equal(res.status, 410);
+  assert.match(res.body.error, /归档/);
+});
+
+test('安全响应头', async () => {
+  const res = await request(app).get('/api/posts');
+  assert.equal(res.headers['x-content-type-options'], 'nosniff');
+  assert.equal(res.headers['x-frame-options'], 'DENY');
+  assert.equal(res.headers['referrer-policy'], 'no-referrer');
+});

@@ -57,6 +57,7 @@ export const api = {
   },
   createPost: (body) => request('/posts', { method: 'POST', body }),
   deletePost: (id) => request(`/posts/${id}`, { method: 'DELETE' }),
+  setAnswered: (id, status) => request(`/posts/${id}/answer`, { method: 'POST', body: { status } }),
   pray: (id) => request(`/posts/${id}/pray`, { method: 'POST' }),
   comments: (id) => request(`/posts/${id}/comments`),
   addComment: (id, content) => request(`/posts/${id}/comments`, { method: 'POST', body: { content } }),

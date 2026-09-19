@@ -21,6 +21,14 @@ function createApp(options = {}) {
 
   const app = express();
   app.disable('x-powered-by');
+  // 基础安全响应头（零依赖版 helmet：覆盖 API + 静态页）
+  app.use((req, res, next) => {
+    res.set('X-Content-Type-Options', 'nosniff');
+    res.set('X-Frame-Options', 'DENY');
+    res.set('Referrer-Policy', 'no-referrer');
+    res.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+    next();
+  });
   // 宝塔/nginx 反代场景需开启，否则 req.ip 恒为反代 IP，限流会误伤所有用户
   if (env.TRUST_PROXY === 'true') app.set('trust proxy', 1);
   app.use(express.json({ limit: '128kb' }));

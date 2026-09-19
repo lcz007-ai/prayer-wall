@@ -129,6 +129,16 @@ async function remove(post) {
   }
 }
 
+async function setAnswered(post) {
+  const next = post.status === 'answered' ? 'open' : 'answered';
+  try {
+    const data = await api.setAnswered(post.id, next);
+    post.status = data.status;
+  } catch (err) {
+    error.value = err.message;
+  }
+}
+
 async function toggleSave(post) {
   try {
     const method = post.saved ? api.unsavePost : api.savePost;
@@ -231,7 +241,15 @@ onMounted(() => {
       <p v-if="error" class="banner error">{{ error }}</p>
       <p v-if="loading" class="banner">正在加载...</p>
       <div v-if="!loading && posts.length" class="wall">
-        <article v-for="post in posts" :key="post.id" class="sticker" :class="`sticker-${post.id % 6}`">
+        <article
+          v-for="post in posts"
+          :key="post.id"
+          class="sticker"
+          :class="[`sticker-${post.id % 6}`, { 'sticker-answered': post.status === 'answered' }]"
+        >
+          <span v-if="post.status === 'answered'" class="answered-badge">
+            <Check :size="13" /> 已蒙应允
+          </span>
           <p class="sticker-content">{{ post.content }}</p>
           <div v-if="post.tags && post.tags.length" class="post-tags">
             <span v-for="tag in post.tags" :key="tag" class="mini-tag">{{ tag }}</span>
@@ -276,6 +294,17 @@ onMounted(() => {
               >
                 <Heart :size="16" :fill="post.prayed ? 'currentColor' : 'none'" />
                 <span>{{ post.prayCount }}</span>
+              </button>
+              <button
+                v-if="canDelete(post)"
+                class="action-btn"
+                :class="{ answered: post.status === 'answered' }"
+                type="button"
+                :title="post.status === 'answered' ? '取消应允标记' : '标记为已蒙应允'"
+                :aria-label="post.status === 'answered' ? '取消应允标记' : '标记为已蒙应允'"
+                @click="setAnswered(post)"
+              >
+                <Check :size="16" />
               </button>
               <button
                 v-if="canDelete(post)"

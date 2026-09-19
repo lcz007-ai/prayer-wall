@@ -11,6 +11,7 @@ function postRow(row, userId, tags = []) {
     city: row.city,
     district: row.district,
     tags,
+    status: row.status || 'open',
     prayCount: row.pray_count,
     prayed: !!row.prayed,
     saved: !!row.saved,
@@ -162,9 +163,12 @@ module.exports = function postRoutes({ db }) {
   router.post('/:id/pray', memberOnly, (req, res) => {
     const id = Number(req.params.id);
     const row = db
-      .prepare(`SELECT * FROM posts WHERE id = ? AND created_at >= datetime('now', '-30 days')`)
+      .prepare(
+        `SELECT *, created_at >= datetime('now', '-30 days') AS active FROM posts WHERE id = ?`
+      )
       .get(id);
     if (!row) return res.status(404).json({ error: '代祷需求不存在' });
+    if (!row.active) return res.status(410).json({ error: '该代祷需求已归档' });
     if (row.user_id === req.user.id) {
       return res.status(400).json({ error: '不能为自己的代祷需求祷告' });
     }
@@ -179,6 +183,21 @@ module.exports = function postRoutes({ db }) {
     })();
     const post = db.prepare(`SELECT pray_count FROM posts WHERE id = ?`).get(id);
     res.json({ ok: true, already, prayCount: post.pray_count });
+  });
+
+  router.post('/:id/answer', memberOnly, (req, res) => {
+    const id = Number(req.params.id);
+    const row = db.prepare(`SELECT * FROM posts WHERE id = ?`).get(id);
+    if (!row) return res.status(404).json({ error: '代祷需求不存在' });
+    if (row.user_id !== req.user.id && req.user.role !== 'admin') {
+      return res.status(403).json({ error: '只有发布人可以标记蒙应允状态' });
+    }
+    const status = String(req.body?.status || '');
+    if (!['open', 'answered'].includes(status)) {
+      return res.status(400).json({ error: '无效的状态' });
+    }
+    db.prepare(`UPDATE posts SET status = ? WHERE id = ?`).run(status, id);
+    res.json({ ok: true, status });
   });
 
   router.get('/:id/comments', (req, res) => {
