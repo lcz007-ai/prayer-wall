@@ -210,7 +210,7 @@ onMounted(() => {
       </div>
     </nav>
 
-    <p v-if="isGuest" class="banner guest-banner">当前为访客模式，仅可浏览代祷墙。</p>
+    <p v-if="isGuest" class="banner guest-banner">当前为访客模式，仅可浏览守望贴纸墙。</p>
 
     <div class="search-bar">
       <Search :size="17" />
