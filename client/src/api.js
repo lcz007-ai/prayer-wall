@@ -44,15 +44,23 @@ export const api = {
   access: (password) => request('/auth/access', { method: 'POST', body: { password } }),
   sendCode: (phone) => request('/auth/send-code', { method: 'POST', body: { phone } }),
   login: (phone, code) => request('/auth/login', { method: 'POST', body: { phone, code } }),
+  guestLogin: () => request('/auth/guest', { method: 'POST' }),
   me: () => request('/auth/me'),
   logout: () => request('/auth/logout', { method: 'POST' }),
   updateMe: (patch) => request('/me', { method: 'PATCH', body: patch }),
-  posts: (scope, tag = '') => {
+  posts: (scope, tag = '', query = '') => {
     const params = new URLSearchParams({ scope });
     if (tag) params.set('tag', tag);
+    if (query) params.set('q', query);
     return request(`/posts?${params.toString()}`);
   },
   createPost: (body) => request('/posts', { method: 'POST', body }),
   deletePost: (id) => request(`/posts/${id}`, { method: 'DELETE' }),
-  pray: (id) => request(`/posts/${id}/pray`, { method: 'POST' })
+  pray: (id) => request(`/posts/${id}/pray`, { method: 'POST' }),
+  comments: (id) => request(`/posts/${id}/comments`),
+  addComment: (id, content) => request(`/posts/${id}/comments`, { method: 'POST', body: { content } }),
+  deleteComment: (postId, commentId) =>
+    request(`/posts/${postId}/comments/${commentId}`, { method: 'DELETE' }),
+  savePost: (id) => request(`/posts/${id}/save`, { method: 'POST' }),
+  unsavePost: (id) => request(`/posts/${id}/save`, { method: 'DELETE' })
 };

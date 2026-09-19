@@ -1,16 +1,19 @@
 <script setup>
-import { onMounted, ref } from 'vue';
-import { Heart, HeartHandshake, LogOut, MapPin, Plus, Trash2 } from 'lucide-vue-next';
+import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { Bookmark, BookmarkCheck, Heart, HeartHandshake, LogOut, MapPin, MessageCircle, Plus, Search, Trash2 } from 'lucide-vue-next';
 import { api } from '../api';
+import { cityLabel } from '../regions';
 import { ALL_TAGS } from '../tags';
 import PostModal from './PostModal.vue';
 import RegionPicker from './RegionPicker.vue';
+import CommentsModal from './CommentsModal.vue';
 
 const props = defineProps({
   user: { type: Object, required: true }
 });
 const emit = defineEmits(['logout', 'user-updated']);
 
+const isGuest = computed(() => props.user.role === 'guest');
 const scope = ref('same-city');
 const activeTag = ref('');
 const posts = ref([]);
@@ -19,12 +22,16 @@ const error = ref('');
 const showPost = ref(false);
 const showRegion = ref(false);
 const needsRegion = ref(false);
+const query = ref('');
+const searchInput = ref('');
+const commentPost = ref(null);
+let searchTimer;
 
 async function loadPosts() {
   loading.value = true;
   error.value = '';
   try {
-    const data = await api.posts(scope.value, activeTag.value);
+    const data = await api.posts(scope.value, activeTag.value, query.value);
     posts.value = data.posts;
     needsRegion.value = data.needsRegion;
     if (data.needsRegion) showRegion.value = true;
@@ -47,7 +54,18 @@ function changeTag(tag) {
   loadPosts();
 }
 
+function changeSearch() {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => {
+    query.value = searchInput.value.trim();
+    loadPosts();
+  }, 250);
+}
+
+onUnmounted(() => clearTimeout(searchTimer));
+
 function openPost() {
+  if (isGuest.value) return;
   if (!props.user.city) {
     showRegion.value = true;
     return;
@@ -93,8 +111,26 @@ async function remove(post) {
   }
 }
 
+async function toggleSave(post) {
+  try {
+    const method = post.saved ? api.unsavePost : api.savePost;
+    const data = await method(post.id);
+    post.saved = data.saved;
+  } catch (err) {
+    error.value = err.message;
+  }
+}
+
+function openComments(post) {
+  commentPost.value = post;
+}
+
+function handleCommentCount(count) {
+  if (commentPost.value) commentPost.value.commentCount = count;
+}
+
 function canDelete(post) {
-  return post.mine || props.user.role === 'admin';
+  return !isGuest.value && (post.mine || props.user.role === 'admin');
 }
 
 function timeText(value) {
@@ -128,7 +164,7 @@ onMounted(() => {
           <h1>守望代祷墙</h1>
           <button class="scope-link" type="button" @click="showRegion = true">
             <MapPin :size="14" />
-            <span>{{ scope === 'same-city' ? (user.city || '选择地区') : '全国' }}</span>
+            <span>{{ scope === 'same-city' ? (cityLabel(user.province, user.city) || '选择地区') : '全国' }}</span>
           </button>
         </div>
       </div>
@@ -141,8 +177,24 @@ onMounted(() => {
       <div class="segmented">
         <button :class="{ active: scope === 'same-city' }" type="button" @click="changeScope('same-city')">附近</button>
         <button :class="{ active: scope === 'all' }" type="button" @click="changeScope('all')">全国</button>
+        <button :class="{ active: scope === 'saved' }" type="button" @click="changeScope('saved')">收藏</button>
+        <button :class="{ active: scope === 'mine' }" type="button" @click="changeScope('mine')">我的</button>
       </div>
     </nav>
+
+    <p v-if="isGuest" class="banner guest-banner">当前为访客模式，仅可浏览代祷墙。</p>
+
+    <div class="search-bar">
+      <Search :size="17" />
+      <input
+        v-model="searchInput"
+        type="search"
+        maxlength="50"
+        aria-label="搜索代祷内容或昵称"
+        placeholder="搜索代祷内容或昵称"
+        @input="changeSearch"
+      />
+    </div>
 
     <nav class="tag-bar" aria-label="按标签筛选">
       <button :class="{ active: activeTag === '' }" type="button" @click="changeTag('')">全部</button>
@@ -168,17 +220,40 @@ onMounted(() => {
           </div>
           <div class="sticker-meta">
             <span class="nickname">{{ post.nickname }}</span>
-            <span class="region">{{ [post.city, post.district].filter(Boolean).join(' · ') }}</span>
+            <span class="region">{{ [cityLabel(post.province, post.city), post.district].filter(Boolean).join(' · ') }}</span>
           </div>
           <footer class="sticker-foot">
             <span class="time">{{ timeText(post.createdAt) }}</span>
             <div class="sticker-actions">
               <button
+                v-if="!isGuest"
+                class="action-btn"
+                :class="{ saved: post.saved }"
+                type="button"
+                :title="post.saved ? '取消收藏' : '收藏'"
+                :aria-label="post.saved ? '取消收藏' : '收藏'"
+                @click="toggleSave(post)"
+              >
+                <BookmarkCheck v-if="post.saved" :size="16" />
+                <Bookmark v-else :size="16" />
+              </button>
+              <button
+                class="action-btn"
+                :class="{ replied: post.commentCount > 0 }"
+                type="button"
+                title="回应留言"
+                aria-label="回应留言"
+                @click="openComments(post)"
+              >
+                <MessageCircle :size="16" />
+                <span>{{ post.commentCount }}</span>
+              </button>
+              <button
                 class="pray-btn"
                 :class="{ prayed: post.prayed }"
                 type="button"
                 :disabled="post.prayed || post.mine"
-                :title="post.mine ? '自己的需求' : '我已祷告'"
+                :title="isGuest ? '访客仅可浏览' : post.mine ? '自己的需求' : '我已祷告'"
                 @click="pray(post)"
               >
                 <Heart :size="16" :fill="post.prayed ? 'currentColor' : 'none'" />
@@ -201,15 +276,29 @@ onMounted(() => {
       <div v-else-if="!loading && !posts.length" class="empty-state">
         <HeartHandshake class="empty-icon" :size="42" :stroke-width="1.5" />
         <p>{{ scope === 'same-city' ? '附近还没有代祷需求' : '还没有代祷需求' }}</p>
-        <button class="primary-btn" type="button" @click="openPost">写下第一条</button>
+        <button v-if="!isGuest" class="primary-btn" type="button" @click="openPost">写下第一条</button>
       </div>
     </main>
 
-    <button class="fab" type="button" title="写下代祷需求" aria-label="写下代祷需求" @click="openPost">
+    <button
+      v-if="!isGuest"
+      class="fab"
+      type="button"
+      title="写下代祷需求"
+      aria-label="写下代祷需求"
+      @click="openPost"
+    >
       <Plus :size="26" />
     </button>
 
     <PostModal v-if="showPost" :user="user" @close="showPost = false" @created="handleCreated" />
+    <CommentsModal
+      v-if="commentPost"
+      :post="commentPost"
+      :read-only="isGuest"
+      @close="commentPost = null"
+      @changed="handleCommentCount"
+    />
     <RegionPicker
       v-if="showRegion"
       :region="user"
@@ -219,3 +308,6 @@ onMounted(() => {
     />
   </div>
 </template>
+
+
+

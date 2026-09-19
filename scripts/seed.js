@@ -11,10 +11,14 @@ const seed = JSON.parse(fs.readFileSync(seedPath, 'utf8'));
 
 const db = initDb(dbPath);
 const phones = seed.posts.map((_, i) => `139${String(10000000 + i).slice(-8)}`);
-const placeholders = phones.map(() => '?').join(',');
-const existing = db
-  .prepare(`SELECT phone, id FROM users WHERE phone IN (${placeholders})`)
-  .all(...phones);
+const existing = [];
+for (let i = 0; i < phones.length; i += 400) {
+  const chunk = phones.slice(i, i + 400);
+  const placeholders = chunk.map(() => '?').join(',');
+  existing.push(
+    ...db.prepare(`SELECT phone, id FROM users WHERE phone IN (${placeholders})`).all(...chunk)
+  );
+}
 
 for (const user of existing) {
   db.prepare('DELETE FROM prayers WHERE post_id IN (SELECT id FROM posts WHERE user_id = ?)').run(user.id);

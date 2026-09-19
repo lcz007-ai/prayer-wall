@@ -13,9 +13,18 @@ function postRow(row, userId, tags = []) {
     tags,
     prayCount: row.pray_count,
     prayed: !!row.prayed,
+    saved: !!row.saved,
+    commentCount: row.comment_count || 0,
     mine: row.user_id === userId,
     createdAt: row.created_at
   };
+}
+
+function memberOnly(req, res, next) {
+  if (req.user.role === 'guest') {
+    return res.status(403).json({ error: '访客只能浏览，请先用手机号登录' });
+  }
+  return next();
 }
 
 module.exports = function postRoutes({ db }) {
@@ -23,7 +32,8 @@ module.exports = function postRoutes({ db }) {
   router.use(authRequired(db));
 
   router.get('/', (req, res) => {
-    const scope = req.query.scope === 'all' ? 'all' : 'same-city';
+    const rawScope = String(req.query.scope || 'same-city');
+    const scope = ['same-city', 'all', 'saved', 'mine'].includes(rawScope) ? rawScope : 'same-city';
     if (scope === 'same-city' && !req.user.city) {
       return res.json({ posts: [], needsRegion: true });
     }
@@ -31,18 +41,38 @@ module.exports = function postRoutes({ db }) {
     if (tag && !ALLOWED_TAGS.includes(tag)) {
       return res.status(400).json({ error: '无效的标签' });
     }
+    const query = String(req.query.q || '').trim().slice(0, 50);
 
     let sql = `
       SELECT posts.*, EXISTS(
         SELECT 1 FROM prayers p WHERE p.post_id = posts.id AND p.user_id = ?
       ) AS prayed
+      , EXISTS(
+        SELECT 1 FROM post_saves s WHERE s.post_id = posts.id AND s.user_id = ?
+      ) AS saved
+      , (
+        SELECT COUNT(*) FROM post_comments c WHERE c.post_id = posts.id
+      ) AS comment_count
       FROM posts
-      WHERE created_at >= datetime('now', '-30 days')
     `;
-    const params = [req.user.id];
-    if (scope === 'same-city') {
-      sql += ` AND posts.province = ? AND posts.city = ?`;
-      params.push(req.user.province, req.user.city);
+    let params = [req.user.id, req.user.id];
+    if (scope === 'saved') {
+      sql += ` WHERE EXISTS(SELECT 1 FROM post_saves s WHERE s.post_id = posts.id AND s.user_id = ?)`;
+      params.push(req.user.id);
+    } else if (scope === 'mine') {
+      sql += ` WHERE posts.user_id = ?`;
+      params.push(req.user.id);
+    } else {
+      sql += ` WHERE created_at >= datetime('now', '-30 days')`;
+      if (scope === 'same-city') {
+        sql += ` AND posts.province = ? AND posts.city = ?`;
+        params.push(req.user.province, req.user.city);
+      }
+    }
+    if (query) {
+      const keyword = `%${query.replace(/[\\%_]/g, '\\$&')}%`;
+      sql += ` AND (posts.content LIKE ? ESCAPE '\\' OR posts.nickname LIKE ? ESCAPE '\\')`;
+      params.push(keyword, keyword);
     }
     if (tag) {
       sql += ` AND EXISTS(SELECT 1 FROM post_tags pt WHERE pt.post_id = posts.id AND pt.tag = ?)`;
@@ -66,7 +96,7 @@ module.exports = function postRoutes({ db }) {
     });
   });
 
-  router.post('/', (req, res) => {
+  router.post('/', memberOnly, (req, res) => {
     const content = String(req.body?.content || '').trim();
     if (!content) return res.status(400).json({ error: '请写下代祷内容' });
     if (content.length > 500) return res.status(400).json({ error: '代祷内容不能超过 500 字' });
@@ -94,10 +124,10 @@ module.exports = function postRoutes({ db }) {
       db.prepare(`INSERT INTO post_tags (post_id, tag) VALUES (?, ?)`).run(info.lastInsertRowid, tag);
     }
     const row = db.prepare(`SELECT posts.*, 0 AS prayed FROM posts WHERE id = ?`).get(info.lastInsertRowid);
-    res.status(201).json({ post: postRow(row, req.user.id, tags) });
+    res.status(201).json({ post: postRow({ ...row, saved: 0, comment_count: 0 }, req.user.id, tags) });
   });
 
-  router.delete('/:id', (req, res) => {
+  router.delete('/:id', memberOnly, (req, res) => {
     const id = Number(req.params.id);
     const row = db.prepare(`SELECT * FROM posts WHERE id = ?`).get(id);
     if (!row) return res.status(404).json({ error: '代祷需求不存在' });
@@ -106,11 +136,13 @@ module.exports = function postRoutes({ db }) {
     }
     db.prepare(`DELETE FROM prayers WHERE post_id = ?`).run(id);
     db.prepare(`DELETE FROM post_tags WHERE post_id = ?`).run(id);
+    db.prepare(`DELETE FROM post_comments WHERE post_id = ?`).run(id);
+    db.prepare(`DELETE FROM post_saves WHERE post_id = ?`).run(id);
     db.prepare(`DELETE FROM posts WHERE id = ?`).run(id);
     res.json({ ok: true });
   });
 
-  router.post('/:id/pray', (req, res) => {
+  router.post('/:id/pray', memberOnly, (req, res) => {
     const id = Number(req.params.id);
     const row = db
       .prepare(`SELECT * FROM posts WHERE id = ? AND created_at >= datetime('now', '-30 days')`)
@@ -126,6 +158,66 @@ module.exports = function postRoutes({ db }) {
     }
     const post = db.prepare(`SELECT pray_count FROM posts WHERE id = ?`).get(id);
     res.json({ ok: true, already, prayCount: post.pray_count });
+  });
+
+  router.get('/:id/comments', (req, res) => {
+    const id = Number(req.params.id);
+    const post = db.prepare(`SELECT * FROM posts WHERE id = ?`).get(id);
+    if (!post) return res.status(404).json({ error: '代祷需求不存在' });
+    const rows = db
+      .prepare(`SELECT * FROM post_comments WHERE post_id = ? ORDER BY created_at ASC, id ASC`)
+      .all(id);
+    const comments = rows.map((row) => ({
+      id: row.id,
+      content: row.content,
+      nickname: row.nickname || '匿名',
+      mine: row.user_id === req.user.id,
+      canDelete: row.user_id === req.user.id || post.user_id === req.user.id || req.user.role === 'admin',
+      createdAt: row.created_at
+    }));
+    res.json({ comments });
+  });
+
+  router.post('/:id/comments', memberOnly, (req, res) => {
+    const id = Number(req.params.id);
+    const post = db.prepare(`SELECT * FROM posts WHERE id = ?`).get(id);
+    if (!post) return res.status(404).json({ error: '代祷需求不存在' });
+    const content = String(req.body?.content || '').trim();
+    if (!content) return res.status(400).json({ error: '请写下回应内容' });
+    if (content.length > 200) return res.status(400).json({ error: '回应内容不能超过 200 字' });
+    const nickname = String(req.body?.nickname || '').trim().slice(0, 20) || req.user.nickname;
+    db.prepare(
+      `INSERT INTO post_comments (post_id, user_id, content, nickname) VALUES (?, ?, ?, ?)`
+    ).run(id, req.user.id, content, nickname);
+    const count = db.prepare(`SELECT COUNT(*) AS c FROM post_comments WHERE post_id = ?`).get(id).c;
+    res.status(201).json({ ok: true, commentCount: count });
+  });
+
+  router.delete('/:id/comments/:commentId', memberOnly, (req, res) => {
+    const id = Number(req.params.id);
+    const commentId = Number(req.params.commentId);
+    const post = db.prepare(`SELECT * FROM posts WHERE id = ?`).get(id);
+    const comment = db.prepare(`SELECT * FROM post_comments WHERE id = ? AND post_id = ?`).get(commentId, id);
+    if (!post || !comment) return res.status(404).json({ error: '回应不存在' });
+    const allowed = comment.user_id === req.user.id || post.user_id === req.user.id || req.user.role === 'admin';
+    if (!allowed) return res.status(403).json({ error: '没有权限删除这条回应' });
+    db.prepare(`DELETE FROM post_comments WHERE id = ?`).run(commentId);
+    const count = db.prepare(`SELECT COUNT(*) AS c FROM post_comments WHERE post_id = ?`).get(id).c;
+    res.json({ ok: true, commentCount: count });
+  });
+
+  router.post('/:id/save', memberOnly, (req, res) => {
+    const id = Number(req.params.id);
+    const post = db.prepare(`SELECT * FROM posts WHERE id = ?`).get(id);
+    if (!post) return res.status(404).json({ error: '代祷需求不存在' });
+    db.prepare(`INSERT OR IGNORE INTO post_saves (post_id, user_id) VALUES (?, ?)`).run(id, req.user.id);
+    res.json({ ok: true, saved: true });
+  });
+
+  router.delete('/:id/save', memberOnly, (req, res) => {
+    const id = Number(req.params.id);
+    db.prepare(`DELETE FROM post_saves WHERE post_id = ? AND user_id = ?`).run(id, req.user.id);
+    res.json({ ok: true, saved: false });
   });
 
   return router;

@@ -57,11 +57,30 @@ CREATE TABLE IF NOT EXISTS post_tags (
   UNIQUE(post_id, tag)
 );
 
+CREATE TABLE IF NOT EXISTS post_comments (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  post_id INTEGER NOT NULL REFERENCES posts(id),
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  content TEXT NOT NULL,
+  nickname TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS post_saves (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  post_id INTEGER NOT NULL REFERENCES posts(id),
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(post_id, user_id)
+);
+
 CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token);
 CREATE INDEX IF NOT EXISTS idx_posts_region_time ON posts(city, created_at);
 CREATE INDEX IF NOT EXISTS idx_posts_time ON posts(created_at);
 CREATE INDEX IF NOT EXISTS idx_prayers_post_user ON prayers(post_id, user_id);
 CREATE INDEX IF NOT EXISTS idx_post_tags_tag ON post_tags(tag);
+CREATE INDEX IF NOT EXISTS idx_post_comments_post ON post_comments(post_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_post_saves_user_post ON post_saves(user_id, post_id);
 `;
 
 function initDb(dbPath) {

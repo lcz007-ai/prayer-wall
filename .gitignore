@@ -5,3 +5,10 @@ test/screenshots/
 .env
 *.log
 .DS_Store
+Thumbs.db
+data/*.db-shm
+data/*.db-wal
+*.local
+android/app/build/
+android/.gradle/
+android/local.properties

@@ -208,6 +208,41 @@ select:focus {
   font-size: 14px;
 }
 
+.auth-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 16px 0;
+  color: var(--text-soft);
+  font-size: 13px;
+}
+
+.auth-divider::before,
+.auth-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+
+.secondary-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 46px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-strong);
+  color: var(--navy);
+  font-weight: 600;
+}
+
+.secondary-btn:hover:not(:disabled) {
+  border-color: var(--navy);
+}
+
 .app-shell {
   min-height: 100vh;
 }
@@ -292,7 +327,7 @@ select:focus {
 
 .segmented {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(4, 1fr);
   gap: 4px;
   padding: 4px;
   border: 1px solid var(--line);
@@ -344,6 +379,31 @@ select:focus {
   background: var(--navy);
   color: #ffffff;
   font-weight: 600;
+}
+
+.search-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 16px 0;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text-soft);
+}
+
+.search-bar input {
+  min-height: 42px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+}
+
+.search-bar input:focus {
+  border: none;
+  box-shadow: none;
 }
 
 .wall-wrap {
@@ -482,7 +542,34 @@ select:focus {
 .sticker-actions {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 3px;
+}
+
+.action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0 7px;
+  border: 1px solid rgba(29, 51, 87, 0.18);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.6);
+  color: var(--navy);
+  font-size: 13px;
+}
+
+.action-btn.saved {
+  border-color: transparent;
+  background: var(--navy);
+  color: #ffffff;
+}
+
+.action-btn.replied {
+  border-color: rgba(61, 139, 125, 0.3);
+  background: rgba(61, 139, 125, 0.14);
+  color: var(--accent-dark);
 }
 
 .pray-btn {
@@ -662,6 +749,86 @@ select:focus {
   font-weight: 600;
 }
 
+.comments-sheet {
+  display: flex;
+  flex-direction: column;
+}
+
+.comment-post {
+  margin-bottom: 14px;
+  padding: 12px;
+  border-left: 3px solid var(--accent);
+  background: #f4f7f4;
+}
+
+.comment-post p {
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.comment-post span {
+  display: block;
+  margin-top: 7px;
+  color: var(--text-soft);
+  font-size: 12px;
+}
+
+.comment-list {
+  flex: 1 1 auto;
+  min-height: 72px;
+  max-height: 34vh;
+  margin-bottom: 14px;
+  overflow-y: auto;
+}
+
+.comment-item {
+  position: relative;
+  padding: 10px 30px 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.comment-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 4px;
+  font-size: 13px;
+}
+
+.comment-head strong {
+  color: var(--navy);
+}
+
+.comment-head span {
+  color: var(--text-soft);
+  font-size: 12px;
+}
+
+.comment-item p {
+  font-size: 14px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.comment-delete {
+  position: absolute;
+  right: 0;
+  bottom: 8px;
+}
+
+.comment-form {
+  flex: 0 0 auto;
+}
+
+.comment-form .primary-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  width: 100%;
+}
+
 .region-tip {
   margin: -8px 0 14px;
   color: var(--text-soft);
@@ -682,6 +849,12 @@ select:focus {
   color: var(--text-soft);
 }
 
+@media (max-width: 479px) {
+  .wall {
+    columns: 1;
+  }
+}
+
 @media (min-width: 560px) {
   .modal-overlay {
     align-items: center;
@@ -695,6 +868,10 @@ select:focus {
 
   .wall {
     columns: 3;
+  }
+
+  .comment-list {
+    max-height: 42vh;
   }
 }
 

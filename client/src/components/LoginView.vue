@@ -1,5 +1,6 @@
 <script setup>
 import { computed, onUnmounted, ref } from 'vue';
+import { UserRound } from 'lucide-vue-next';
 import { api } from '../api';
 
 const emit = defineEmits(['logged-in']);
@@ -10,6 +11,7 @@ const error = ref('');
 const devCode = ref('');
 const sending = ref(false);
 const loggingIn = ref(false);
+const guestLoading = ref(false);
 let timer = null;
 
 const phoneValid = computed(() => /^1[3-9]\d{9}$/.test(phone.value.trim()));
@@ -47,6 +49,19 @@ async function login() {
   }
 }
 
+async function guestLogin() {
+  error.value = '';
+  guestLoading.value = true;
+  try {
+    const data = await api.guestLogin();
+    emit('logged-in', data.user);
+  } catch (err) {
+    error.value = err.message;
+  } finally {
+    guestLoading.value = false;
+  }
+}
+
 onUnmounted(() => clearInterval(timer));
 </script>
 
@@ -68,6 +83,11 @@ onUnmounted(() => clearInterval(timer));
           {{ loggingIn ? '登录中...' : '登录' }}
         </button>
       </form>
+      <div class="auth-divider"><span>或</span></div>
+      <button class="secondary-btn" type="button" :disabled="guestLoading" @click="guestLogin">
+        <UserRound :size="18" />
+        <span>{{ guestLoading ? '进入中...' : '访客登录' }}</span>
+      </button>
       <p v-if="devCode" class="dev-hint">本地测试验证码：{{ devCode }}</p>
       <p v-if="error" class="form-error">{{ error }}</p>
     </section>

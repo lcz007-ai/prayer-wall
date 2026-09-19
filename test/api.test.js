@@ -257,3 +257,124 @@ test('删除：本人可删、他人不可删、管理员可删', async () => {
   const after = await owner.delete(`/api/posts/${postId}`);
   assert.equal(after.status, 404);
 });
+
+test('社区功能：留言、收藏、搜索与我的发布', async () => {
+  const owner = request.agent(app);
+  await loginAs(owner, '13300000001');
+  await setRegion(owner, '浙江省', '温州市', '鹿城区');
+
+  const friend = request.agent(app);
+  await loginAs(friend, '13300000002');
+  await setRegion(friend, '浙江省', '温州市', '鹿城区');
+
+  const stranger = request.agent(app);
+  await loginAs(stranger, '13300000003');
+  await setRegion(stranger, '江苏省', '苏州市', '姑苏区');
+
+  const savedPost = await owner
+    .post('/api/posts')
+    .send({ content: '守望搜索专用：为家人出行的平安祷告', nickname: '搜索楼主' });
+  const plainPost = await owner
+    .post('/api/posts')
+    .send({ content: '另一条不需要搜索到的需求', nickname: '另一位' });
+  const postId = savedPost.body.post.id;
+
+  assert.equal(savedPost.body.post.saved, false);
+  assert.equal(savedPost.body.post.commentCount, 0);
+
+  const emptyContent = await friend.post(`/api/posts/${postId}/comments`).send({ content: ' ' });
+  assert.equal(emptyContent.status, 400);
+
+  const created = await friend
+    .post(`/api/posts/${postId}/comments`)
+    .send({ content: '愿你们一路平安，我会持续记念。' });
+  assert.equal(created.status, 201);
+  assert.equal(created.body.commentCount, 1);
+
+  const comments = await owner.get(`/api/posts/${postId}/comments`);
+  assert.equal(comments.status, 200);
+  assert.equal(comments.body.comments.length, 1);
+  assert.equal(comments.body.comments[0].nickname, '匿名');
+  assert.equal(comments.body.comments[0].mine, false);
+  assert.equal(comments.body.comments[0].canDelete, true, '帖子作者可以管理自己帖子下的留言');
+
+  const strangerDelete = await stranger.delete(
+    `/api/posts/${postId}/comments/${comments.body.comments[0].id}`
+  );
+  assert.equal(strangerDelete.status, 403);
+
+  const save = await friend.post(`/api/posts/${postId}/save`);
+  assert.equal(save.status, 200);
+  const saveAgain = await friend.post(`/api/posts/${postId}/save`);
+  assert.equal(saveAgain.status, 200);
+
+  const savedList = await friend.get('/api/posts?scope=saved');
+  const savedIds = savedList.body.posts.map((p) => p.id);
+  assert.ok(savedIds.includes(postId));
+  assert.ok(!savedIds.includes(plainPost.body.post.id));
+  assert.equal(savedList.body.posts.find((p) => p.id === postId).saved, true);
+  assert.equal(savedList.body.posts.find((p) => p.id === postId).commentCount, 1);
+
+  const unsave = await friend.delete(`/api/posts/${postId}/save`);
+  assert.equal(unsave.status, 200);
+  const savedAfterUnsave = await friend.get('/api/posts?scope=saved');
+  assert.ok(!savedAfterUnsave.body.posts.some((p) => p.id === postId));
+
+  const searched = await friend.get('/api/posts?scope=all&q=守望搜索专用');
+  assert.equal(searched.body.posts.length, 1);
+  assert.equal(searched.body.posts[0].id, postId);
+
+  const mine = await owner.get('/api/posts?scope=mine');
+  const mineIds = mine.body.posts.map((p) => p.id);
+  assert.ok(mineIds.includes(postId));
+  assert.ok(mineIds.includes(plainPost.body.post.id));
+  assert.ok(mine.body.posts.every((p) => p.mine));
+});
+
+test('访客登录：可浏览但只能手机号用户写入', async () => {
+  const member = request.agent(app);
+  await loginAs(member, '13200000001');
+  await setRegion(member, '浙江省', '宁波市', '海曙区');
+  const created = await member.post('/api/posts').send({ content: '访客可浏览的代祷需求' });
+  const postId = created.body.post.id;
+
+  const guest = request.agent(app);
+  const guestLogin = await guest.post('/api/auth/guest');
+  assert.equal(guestLogin.status, 201);
+  assert.equal(guestLogin.body.user.role, 'guest');
+  assert.equal(guestLogin.body.user.phone, '');
+  assert.equal(guestLogin.body.user.nickname, '访客');
+  const guestId = guestLogin.body.user.id;
+
+  const noRegion = await guest.get('/api/posts?scope=same-city');
+  assert.equal(noRegion.status, 200);
+  assert.equal(noRegion.body.needsRegion, true);
+
+  const deniedCreate = await guest.post('/api/posts').send({ content: '访客不能发布' });
+  assert.equal(deniedCreate.status, 403);
+
+  await setRegion(guest, '浙江省', '宁波市', '海曙区');
+  const list = await guest.get('/api/posts?scope=all');
+  assert.equal(list.status, 200);
+  assert.ok(list.body.posts.some((p) => p.id === postId));
+
+  const comments = await guest.get(`/api/posts/${postId}/comments`);
+  assert.equal(comments.status, 200);
+
+  const deniedPray = await guest.post(`/api/posts/${postId}/pray`);
+  assert.equal(deniedPray.status, 403);
+  const deniedComment = await guest.post(`/api/posts/${postId}/comments`).send({ content: '访客不能留言' });
+  assert.equal(deniedComment.status, 403);
+  const deniedSave = await guest.post(`/api/posts/${postId}/save`);
+  assert.equal(deniedSave.status, 403);
+
+  const me = await guest.get('/api/auth/me');
+  assert.equal(me.status, 200);
+  assert.equal(me.body.user.role, 'guest');
+  assert.equal(me.body.user.phone, '');
+
+  await guest.post('/api/auth/logout');
+  const afterLogout = await guest.get('/api/auth/me');
+  assert.equal(afterLogout.status, 401);
+  assert.equal(db.prepare(`SELECT COUNT(*) AS c FROM users WHERE id = ?`).get(guestId).c, 0);
+});

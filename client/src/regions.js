@@ -14,7 +14,13 @@ export function getDistricts(provinceName, cityName) {
   return districts || [];
 }
 
+export function cityLabel(provinceName, cityName) {
+  if (!cityName) return '';
+  return cityName === '市辖区' ? provinceName || '' : cityName;
+}
+
 export function regionLabel(region) {
   if (!region) return '';
-  return [region.province, region.city, region.district].filter(Boolean).join(' · ');
+  return [region.province, cityLabel(region.province, region.city), region.district].filter(Boolean).join(' · ');
 }
+

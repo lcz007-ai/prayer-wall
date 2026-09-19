@@ -11,6 +11,7 @@ const {
 } = require('../utils');
 
 const SESSION_DAYS = 30;
+const GUEST_SESSION_DAYS = 7;
 const codeStore = new Map();
 
 function checkSendRate(phone) {
@@ -49,7 +50,7 @@ function authRequired(db) {
 function publicUser(user) {
   return {
     id: user.id,
-    phone: user.phone,
+    phone: user.role === 'guest' ? '' : user.phone,
     nickname: user.nickname,
     province: user.province,
     city: user.city,
@@ -134,13 +135,42 @@ module.exports = function authRoutes({ db, sms, env }) {
     res.json({ user: publicUser(user) });
   });
 
+  router.post('/guest', (req, res) => {
+    const marker = `guest:${randomToken(12)}`;
+    const info = db.prepare(`INSERT INTO users (phone, nickname, role) VALUES (?, '访客', 'guest')`).run(marker);
+    const user = db.prepare(`SELECT * FROM users WHERE id = ?`).get(info.lastInsertRowid);
+
+    const token = randomToken();
+    const expiresAt = sqlTime(new Date(Date.now() + GUEST_SESSION_DAYS * 24 * 60 * 60 * 1000));
+    db.prepare(`INSERT INTO sessions (user_id, token, expires_at) VALUES (?, ?, ?)`).run(
+      user.id,
+      token,
+      expiresAt
+    );
+    setSessionCookie(res, token, env);
+    res.status(201).json({ user: publicUser(user) });
+  });
+
   router.get('/me', authRequired(db), (req, res) => {
     res.json({ user: publicUser(req.user) });
   });
 
   router.post('/logout', authRequired(db), (req, res) => {
     const token = parseCookies(req).sid;
-    db.prepare(`DELETE FROM sessions WHERE token = ?`).run(token);
+    const session = db
+      .prepare(
+        `SELECT s.user_id, u.role
+         FROM sessions s JOIN users u ON u.id = s.user_id
+         WHERE s.token = ?`
+      )
+      .get(token);
+    if (session) {
+      db.prepare(`DELETE FROM sessions WHERE token = ?`).run(token);
+      if (session.role === 'guest') {
+        db.prepare(`DELETE FROM post_saves WHERE user_id = ?`).run(session.user_id);
+        db.prepare(`DELETE FROM users WHERE id = ?`).run(session.user_id);
+      }
+    }
     clearSessionCookie(res, env);
     res.json({ ok: true });
   });
