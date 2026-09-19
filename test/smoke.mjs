@@ -168,7 +168,7 @@ async function run() {
   page.on('dialog', (dialog) => dialog.accept());
 
   await page.goto(baseUrl, { waitUntil: 'networkidle' });
-  await page.locator('.auth-card h1', { hasText: '守望代祷墙' }).waitFor();
+  await page.locator('.auth-card h1', { hasText: '守望贴纸墙' }).waitFor();
   await captureDesign();
 
   // 第一个用户：登录、选择地区、发布

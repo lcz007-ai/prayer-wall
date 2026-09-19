@@ -69,7 +69,7 @@ onUnmounted(() => clearInterval(timer));
   <main class="auth-page">
     <section class="auth-card">
       <div class="brand-badge">祷</div>
-      <h1>守望代祷墙</h1>
+      <h1>守望贴纸墙</h1>
       <p class="auth-sub">手机号登录后即可查看和发布代祷需求</p>
       <form @submit.prevent="login">
         <div class="phone-row">

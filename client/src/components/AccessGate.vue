@@ -26,7 +26,7 @@ async function submit() {
   <main class="auth-page">
     <section class="auth-card">
       <div class="brand-badge">祷</div>
-      <h1>守望代祷墙</h1>
+      <h1>守望贴纸墙</h1>
       <p class="auth-sub">请输入访问口令</p>
       <form @submit.prevent="submit">
         <input v-model="password" type="password" autocomplete="current-password" placeholder="访问口令" />

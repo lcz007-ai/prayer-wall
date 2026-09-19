@@ -189,7 +189,7 @@ onMounted(() => {
       <div class="brand">
         <span class="brand-badge">祷</span>
         <div>
-          <h1>守望代祷墙</h1>
+          <h1>守望贴纸墙</h1>
           <button class="scope-link" type="button" @click="showRegion = true">
             <MapPin :size="14" />
             <span>{{ scope === 'same-city' ? (cityLabel(user.province, user.city) || '选择地区') : '全国' }}</span>
