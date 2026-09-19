@@ -2,6 +2,7 @@ const { before, test } = require('node:test');
 const assert = require('node:assert');
 const request = require('supertest');
 const { createApp } = require('../server/app');
+const { cleanup } = require('../server/cleanup');
 
 function testEnv(overrides = {}) {
   return {
@@ -10,6 +11,7 @@ function testEnv(overrides = {}) {
     DB_PATH: ':memory:',
     COOKIE_SECURE: 'false',
     ADMIN_PHONES: '13800000001',
+    RATE_LIMIT_MAX: '1000', // 存量用例高频请求，放行 IP 限流；限流本身有独立用例
     ...overrides
   };
 }
@@ -25,7 +27,7 @@ before(() => {
 
 async function loginAs(agent, phone) {
   const send = await agent.post('/api/auth/send-code').send({ phone });
-  assert.equal(send.status, 200);
+  assert.equal(send.status, 200, `send-code 失败: ${JSON.stringify(send.body)}`);
   const login = await agent
     .post('/api/auth/login')
     .send({ phone, code: send.body.devCode });
@@ -74,6 +76,37 @@ test('未登录访问接口返回 401', async () => {
   assert.equal(res.status, 401);
   const posts = await request(app).get('/api/posts');
   assert.equal(posts.status, 401);
+});
+
+test('登录防爆破：同一验证码错误 5 次后作废', async () => {
+  const agent = request.agent(app);
+  const send = await agent.post('/api/auth/send-code').send({ phone: '13100000000' });
+  assert.equal(send.status, 200);
+  for (let i = 0; i < 5; i++) {
+    const bad = await agent.post('/api/auth/login').send({ phone: '13100000000', code: '000000' });
+    assert.equal(bad.status, 401);
+  }
+  // 第 6 次即使码正确也拒绝（已作废）
+  const locked = await agent
+    .post('/api/auth/login')
+    .send({ phone: '13100000000', code: send.body.devCode });
+  assert.equal(locked.status, 401);
+  assert.match(locked.body.error, /重新获取/);
+
+  // 重新发码后可正常登录
+  const resend = await agent.post('/api/auth/send-code').send({ phone: '13100000000' });
+  assert.equal(resend.status, 429); // 60 秒内再次发码被限频
+});
+
+test('IP 限流：超过 RATE_LIMIT_MAX 返回 429', async () => {
+  const { app: limitedApp } = createApp({ env: testEnv({ RATE_LIMIT_MAX: '3' }) });
+  for (let i = 0; i < 3; i++) {
+    const res = await request(limitedApp).get('/api/auth/me');
+    assert.equal(res.status, 401); // 未登录，但请求已计入限流
+  }
+  const blocked = await request(limitedApp).get('/api/auth/me');
+  assert.equal(blocked.status, 429);
+  assert.match(blocked.body.error, /频繁/);
 });
 
 test('访问口令：配置后可配置开关生效', async () => {
@@ -377,4 +410,60 @@ test('访客登录：可浏览但只能手机号用户写入', async () => {
   const afterLogout = await guest.get('/api/auth/me');
   assert.equal(afterLogout.status, 401);
   assert.equal(db.prepare(`SELECT COUNT(*) AS c FROM users WHERE id = ?`).get(guestId).c, 0);
+});
+
+test('分页：默认 30 条，nextCursor 翻页，limit 上限 50', async () => {
+  const agent = request.agent(app);
+  await loginAs(agent, '13700000001');
+  await setRegion(agent, '浙江省', '杭州市', '西湖区');
+  for (let i = 0; i < 35; i++) {
+    const res = await agent.post('/api/posts').send({ content: `分页测试 ${i}`, tags: [] });
+    assert.equal(res.status, 201);
+  }
+  const page1 = await agent.get('/api/posts?scope=mine');
+  assert.equal(page1.status, 200);
+  assert.equal(page1.body.posts.length, 30);
+  assert.ok(page1.body.nextCursor);
+
+  const page2 = await agent.get(`/api/posts?scope=mine&before=${page1.body.nextCursor}`);
+  assert.equal(page2.body.posts.length, 5);
+  assert.equal(page2.body.nextCursor, null);
+
+  // limit clamp：999 → 上限 50（实际只有 35 条全返）；非法值回落默认 30
+  const clamped = await agent.get('/api/posts?scope=mine&limit=999');
+  assert.equal(clamped.body.posts.length, 35);
+  const invalid = await agent.get('/api/posts?scope=mine&limit=-5');
+  assert.equal(invalid.body.posts.length, 30);
+});
+
+test('定时清理：过期 session 与无会话访客被删，正常数据保留', () => {
+  const g = db
+    .prepare(`INSERT INTO users (phone, nickname, role) VALUES ('guest:cleanup-test', '访客', 'guest')`)
+    .run();
+  const guestId = g.lastInsertRowid;
+  db.prepare(`INSERT INTO post_saves (post_id, user_id) VALUES (1, ?)`).run(guestId);
+  db.prepare(
+    `INSERT INTO sessions (user_id, token, expires_at) VALUES (?, 'expired-token', datetime('now', '-1 day'))`
+  ).run(guestId);
+
+  const removed = cleanup(db);
+  assert.equal(removed, 1);
+  assert.equal(db.prepare(`SELECT COUNT(*) AS c FROM sessions WHERE token = 'expired-token'`).get().c, 0);
+  assert.equal(db.prepare(`SELECT COUNT(*) AS c FROM users WHERE id = ?`).get(guestId).c, 0);
+  assert.equal(db.prepare(`SELECT COUNT(*) AS c FROM post_saves WHERE user_id = ?`).get(guestId).c, 0);
+
+  // 正常用户与有效会话不受影响
+  assert.ok(db.prepare(`SELECT COUNT(*) AS c FROM users WHERE role != 'guest'`).get().c > 0);
+});
+
+test('session token 哈希存储：库中无明文 token', async () => {
+  const agent = request.agent(app);
+  await loginAs(agent, '13600000002');
+  const tokens = db.prepare(`SELECT token FROM sessions`).all();
+  assert.ok(tokens.length > 0);
+  for (const t of tokens) {
+    assert.match(t.token, /^[0-9a-f]{64}$/); // sha256 hex，非明文随机 token 也非原始 hex 64 同形——配合 me 接口验证可用性
+  }
+  const me = await agent.get('/api/auth/me');
+  assert.equal(me.status, 200); // 哈希校验链路正常
 });

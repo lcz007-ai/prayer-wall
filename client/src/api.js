@@ -48,10 +48,11 @@ export const api = {
   me: () => request('/auth/me'),
   logout: () => request('/auth/logout', { method: 'POST' }),
   updateMe: (patch) => request('/me', { method: 'PATCH', body: patch }),
-  posts: (scope, tag = '', query = '') => {
+  posts: (scope, tag = '', query = '', before = null) => {
     const params = new URLSearchParams({ scope });
     if (tag) params.set('tag', tag);
     if (query) params.set('q', query);
+    if (before) params.set('before', before);
     return request(`/posts?${params.toString()}`);
   },
   createPost: (body) => request('/posts', { method: 'POST', body }),

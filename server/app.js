@@ -3,7 +3,8 @@ const path = require('path');
 const express = require('express');
 const { initDb } = require('./db');
 const { createSmsProvider } = require('./sms');
-const { sha256, safeEqual } = require('./utils');
+const { scheduleCleanup } = require('./cleanup');
+const { sha256, safeEqual, createRateLimiter } = require('./utils');
 const authRoutes = require('./routes/auth');
 const meRoutes = require('./routes/me');
 const postRoutes = require('./routes/posts');
@@ -16,10 +17,20 @@ function createApp(options = {}) {
   const env = options.env || process.env;
   const db = options.db || initDb(options.dbPath || env.DB_PATH || 'data/app.db');
   const sms = options.sms || createSmsProvider(env);
+  scheduleCleanup(db); // 启动清一次 + 每日定时（interval 已 unref，不阻塞退出）
 
   const app = express();
   app.disable('x-powered-by');
+  // 宝塔/nginx 反代场景需开启，否则 req.ip 恒为反代 IP，限流会误伤所有用户
+  if (env.TRUST_PROXY === 'true') app.set('trust proxy', 1);
   app.use(express.json({ limit: '128kb' }));
+
+  // /api/auth 整体 IP 限流：防换号刷验证码、刷访客账号（默认 60 次/分钟/IP）
+  const authLimiter = createRateLimiter({
+    windowMs: 60_000,
+    max: Number(env.RATE_LIMIT_MAX || 60)
+  });
+  app.use('/api/auth', authLimiter);
 
   const corsOrigins = String(env.CORS_ORIGIN || '')
     .split(',')

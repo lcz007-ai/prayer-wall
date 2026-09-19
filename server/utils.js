@@ -53,6 +53,31 @@ function sqlTime(date = new Date()) {
   return date.toISOString().replace('T', ' ').slice(0, 19);
 }
 
+/**
+ * 轻量 IP 限流中间件（内存版，单实例有效；PM2 多实例部署时需改用共享存储）。
+ * 超限返回 429。
+ */
+function createRateLimiter({ windowMs = 60_000, max = 60 } = {}) {
+  const hits = new Map(); // ip -> { count, resetAt }
+  return function rateLimit(req, res, next) {
+    const ip = req.ip || req.socket?.remoteAddress || 'unknown';
+    const now = Date.now();
+    let rec = hits.get(ip);
+    if (!rec || rec.resetAt <= now) {
+      rec = { count: 0, resetAt: now + windowMs };
+      hits.set(ip, rec);
+      if (hits.size > 10_000) {
+        for (const [k, v] of hits) if (v.resetAt <= now) hits.delete(k);
+      }
+    }
+    rec.count += 1;
+    if (rec.count > max) {
+      return res.status(429).json({ error: '请求过于频繁，请稍后再试' });
+    }
+    next();
+  };
+}
+
 module.exports = {
   PHONE_RE,
   sha256,
@@ -62,5 +87,6 @@ module.exports = {
   parseCookies,
   setSessionCookie,
   clearSessionCookie,
-  sqlTime
+  sqlTime,
+  createRateLimiter
 };

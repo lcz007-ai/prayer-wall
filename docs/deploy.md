@@ -50,12 +50,16 @@ SESSION_SECRET=用一段足够长的随机字符串
 COOKIE_SECURE=true
 ADMIN_PHONES=13800000000,13900000000
 SMS_PROVIDER=aliyun
+RATE_LIMIT_MAX=60
+TRUST_PROXY=false
 ACCESS_PASSWORD=
 ```
 
 - `ADMIN_PHONES`：管理员手机号，登录后自动获得删除任意帖子的权限。
 - `ACCESS_PASSWORD`：可选的整站访问口令，留空关闭；需要时填一段口令。
 - `SESSION_SECRET`：请务必改成随机长字符串。
+- `RATE_LIMIT_MAX`：/api/auth 每分钟每 IP 请求上限，默认 60。
+- `TRUST_PROXY`：宝塔/nginx 反代部署**必须设为 true**，否则限流把所有用户算作同一个反代 IP，会集体误伤。
 
 ## 5. 用 PM2 启动
 

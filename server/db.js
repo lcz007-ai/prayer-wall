@@ -19,7 +19,8 @@ CREATE TABLE IF NOT EXISTS verification_codes (
   phone TEXT NOT NULL,
   code_hash TEXT NOT NULL,
   expires_at TEXT NOT NULL,
-  consumed_at TEXT
+  consumed_at TEXT,
+  failed_attempts INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS sessions (
@@ -92,6 +93,11 @@ function initDb(dbPath) {
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
   db.exec(SCHEMA);
+  // 旧库迁移：verification_codes 补 failed_attempts 列（登录错误次数上限）
+  const codeCols = db.prepare('PRAGMA table_info(verification_codes)').all().map((c) => c.name);
+  if (!codeCols.includes('failed_attempts')) {
+    db.exec('ALTER TABLE verification_codes ADD COLUMN failed_attempts INTEGER NOT NULL DEFAULT 0');
+  }
   return db;
 }
 

@@ -42,6 +42,11 @@ module.exports = function postRoutes({ db }) {
       return res.status(400).json({ error: '无效的标签' });
     }
     const query = String(req.query.q || '').trim().slice(0, 50);
+    // 游标分页：before = 上一页最后一条的 id；limit 默认 30，上限 50
+    const limitRaw = Number(req.query.limit);
+    const limit = Number.isFinite(limitRaw) && limitRaw >= 1 ? Math.min(Math.trunc(limitRaw), 50) : 30;
+    const beforeRaw = Number(req.query.before);
+    const before = Number.isInteger(beforeRaw) && beforeRaw > 0 ? beforeRaw : null;
 
     let sql = `
       SELECT posts.*, EXISTS(
@@ -69,6 +74,10 @@ module.exports = function postRoutes({ db }) {
         params.push(req.user.province, req.user.city);
       }
     }
+    if (before) {
+      sql += ` AND posts.id < ?`;
+      params.push(before);
+    }
     if (query) {
       const keyword = `%${query.replace(/[\\%_]/g, '\\$&')}%`;
       sql += ` AND (posts.content LIKE ? ESCAPE '\\' OR posts.nickname LIKE ? ESCAPE '\\')`;
@@ -78,7 +87,8 @@ module.exports = function postRoutes({ db }) {
       sql += ` AND EXISTS(SELECT 1 FROM post_tags pt WHERE pt.post_id = posts.id AND pt.tag = ?)`;
       params.push(tag);
     }
-    sql += ` ORDER BY posts.created_at DESC, posts.id DESC`;
+    sql += ` ORDER BY posts.created_at DESC, posts.id DESC LIMIT ?`;
+    params.push(limit);
     const rows = db.prepare(sql).all(...params);
     const tagsByPost = {};
     if (rows.length) {
@@ -92,6 +102,7 @@ module.exports = function postRoutes({ db }) {
     }
     res.json({
       posts: rows.map((r) => postRow(r, req.user.id, tagsByPost[r.id] || [])),
+      nextCursor: rows.length === limit ? rows[rows.length - 1].id : null,
       needsRegion: false
     });
   });
@@ -114,16 +125,20 @@ module.exports = function postRoutes({ db }) {
     }
     if (tags.length > 3) return res.status(400).json({ error: '最多选择 3 个标签' });
 
-    const info = db
-      .prepare(
-        `INSERT INTO posts (user_id, content, nickname, province, city, district)
-         VALUES (?, ?, ?, ?, ?, ?)`
-      )
-      .run(req.user.id, content, nickname, province, city, district);
-    for (const tag of tags) {
-      db.prepare(`INSERT INTO post_tags (post_id, tag) VALUES (?, ?)`).run(info.lastInsertRowid, tag);
-    }
-    const row = db.prepare(`SELECT posts.*, 0 AS prayed FROM posts WHERE id = ?`).get(info.lastInsertRowid);
+    const created = db.transaction(() => {
+      const info = db
+        .prepare(
+          `INSERT INTO posts (user_id, content, nickname, province, city, district)
+           VALUES (?, ?, ?, ?, ?, ?)`
+        )
+        .run(req.user.id, content, nickname, province, city, district);
+      for (const tag of tags) {
+        db.prepare(`INSERT INTO post_tags (post_id, tag) VALUES (?, ?)`).run(info.lastInsertRowid, tag);
+      }
+      return info.lastInsertRowid;
+    });
+    const postId = created();
+    const row = db.prepare(`SELECT posts.*, 0 AS prayed FROM posts WHERE id = ?`).get(postId);
     res.status(201).json({ post: postRow({ ...row, saved: 0, comment_count: 0 }, req.user.id, tags) });
   });
 
@@ -134,11 +149,13 @@ module.exports = function postRoutes({ db }) {
     if (row.user_id !== req.user.id && req.user.role !== 'admin') {
       return res.status(403).json({ error: '没有权限删除这条代祷需求' });
     }
-    db.prepare(`DELETE FROM prayers WHERE post_id = ?`).run(id);
-    db.prepare(`DELETE FROM post_tags WHERE post_id = ?`).run(id);
-    db.prepare(`DELETE FROM post_comments WHERE post_id = ?`).run(id);
-    db.prepare(`DELETE FROM post_saves WHERE post_id = ?`).run(id);
-    db.prepare(`DELETE FROM posts WHERE id = ?`).run(id);
+    db.transaction((id) => {
+      db.prepare(`DELETE FROM prayers WHERE post_id = ?`).run(id);
+      db.prepare(`DELETE FROM post_tags WHERE post_id = ?`).run(id);
+      db.prepare(`DELETE FROM post_comments WHERE post_id = ?`).run(id);
+      db.prepare(`DELETE FROM post_saves WHERE post_id = ?`).run(id);
+      db.prepare(`DELETE FROM posts WHERE id = ?`).run(id);
+    })(id);
     res.json({ ok: true });
   });
 
@@ -151,11 +168,15 @@ module.exports = function postRoutes({ db }) {
     if (row.user_id === req.user.id) {
       return res.status(400).json({ error: '不能为自己的代祷需求祷告' });
     }
-    const info = db.prepare(`INSERT OR IGNORE INTO prayers (post_id, user_id) VALUES (?, ?)`).run(id, req.user.id);
-    const already = info.changes === 0;
-    if (!already) {
-      db.prepare(`UPDATE posts SET pray_count = pray_count + 1 WHERE id = ?`).run(id);
-    }
+    // INSERT OR IGNORE 保证幂等（UNIQUE(post_id, user_id)），计数与插入同事务，防中途崩溃导致计数不同步
+    const already = db.transaction(() => {
+      const info = db.prepare(`INSERT OR IGNORE INTO prayers (post_id, user_id) VALUES (?, ?)`).run(id, req.user.id);
+      const dup = info.changes === 0;
+      if (!dup) {
+        db.prepare(`UPDATE posts SET pray_count = pray_count + 1 WHERE id = ?`).run(id);
+      }
+      return dup;
+    })();
     const post = db.prepare(`SELECT pray_count FROM posts WHERE id = ?`).get(id);
     res.json({ ok: true, already, prayCount: post.pray_count });
   });

@@ -17,6 +17,8 @@ const isGuest = computed(() => props.user.role === 'guest');
 const scope = ref('same-city');
 const activeTag = ref('');
 const posts = ref([]);
+const nextCursor = ref(null);
+const loadingMore = ref(false);
 const loading = ref(false);
 const error = ref('');
 const showPost = ref(false);
@@ -33,12 +35,28 @@ async function loadPosts() {
   try {
     const data = await api.posts(scope.value, activeTag.value, query.value);
     posts.value = data.posts;
+    nextCursor.value = data.nextCursor;
     needsRegion.value = data.needsRegion;
     if (data.needsRegion) showRegion.value = true;
   } catch (err) {
     error.value = err.message;
   } finally {
     loading.value = false;
+  }
+}
+
+async function loadMore() {
+  if (!nextCursor.value || loadingMore.value) return;
+  loadingMore.value = true;
+  error.value = '';
+  try {
+    const data = await api.posts(scope.value, activeTag.value, query.value, nextCursor.value);
+    posts.value.push(...data.posts);
+    nextCursor.value = data.nextCursor;
+  } catch (err) {
+    error.value = err.message;
+  } finally {
+    loadingMore.value = false;
   }
 }
 
@@ -272,6 +290,11 @@ onMounted(() => {
             </div>
           </footer>
         </article>
+        </div>
+      <div v-if="nextCursor && !loading" class="load-more">
+        <button class="load-more-btn" type="button" :disabled="loadingMore" @click="loadMore">
+          {{ loadingMore ? '加载中...' : '加载更多' }}
+        </button>
       </div>
       <div v-else-if="!loading && !posts.length" class="empty-state">
         <HeartHandshake class="empty-icon" :size="42" :stroke-width="1.5" />

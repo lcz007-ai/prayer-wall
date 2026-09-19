@@ -12,6 +12,7 @@ const {
 
 const SESSION_DAYS = 30;
 const GUEST_SESSION_DAYS = 7;
+const MAX_CODE_ATTEMPTS = 5; // 单个验证码最大错误次数，超过即作废
 const codeStore = new Map();
 
 function checkSendRate(phone) {
@@ -40,7 +41,7 @@ function authRequired(db) {
          FROM sessions s JOIN users u ON u.id = s.user_id
          WHERE s.token = ? AND s.expires_at > datetime('now')`
       )
-      .get(token);
+      .get(sha256(token));
     if (!row) return res.status(401).json({ error: '登录已过期，请重新登录' });
     req.user = row;
     next();
@@ -100,12 +101,19 @@ module.exports = function authRoutes({ db, sms, env }) {
 
     const row = db
       .prepare(
-        `SELECT id, code_hash FROM verification_codes
+        `SELECT id, code_hash, failed_attempts FROM verification_codes
          WHERE phone = ? AND consumed_at IS NULL AND expires_at > datetime('now')
          ORDER BY id DESC LIMIT 1`
       )
       .get(phone);
+    if (row && row.failed_attempts >= MAX_CODE_ATTEMPTS) {
+      return res.status(401).json({ error: '错误次数过多，请重新获取验证码' });
+    }
     if (!row || row.code_hash !== sha256(code)) {
+      // 失败计数，防 6 位码在 5 分钟有效期内被暴力枚举
+      if (row) {
+        db.prepare(`UPDATE verification_codes SET failed_attempts = failed_attempts + 1 WHERE id = ?`).run(row.id);
+      }
       return res.status(401).json({ error: '验证码错误或已过期' });
     }
     db.prepare(`UPDATE verification_codes SET consumed_at = datetime('now') WHERE id = ?`).run(row.id);
@@ -125,10 +133,11 @@ module.exports = function authRoutes({ db, sms, env }) {
     }
 
     const token = randomToken();
+    // 库中只存 token 哈希：DB 泄露也无法伪造有效会话
     const expiresAt = sqlTime(new Date(Date.now() + SESSION_DAYS * 24 * 60 * 60 * 1000));
     db.prepare(`INSERT INTO sessions (user_id, token, expires_at) VALUES (?, ?, ?)`).run(
       user.id,
-      token,
+      sha256(token),
       expiresAt
     );
     setSessionCookie(res, token, env);
@@ -144,7 +153,7 @@ module.exports = function authRoutes({ db, sms, env }) {
     const expiresAt = sqlTime(new Date(Date.now() + GUEST_SESSION_DAYS * 24 * 60 * 60 * 1000));
     db.prepare(`INSERT INTO sessions (user_id, token, expires_at) VALUES (?, ?, ?)`).run(
       user.id,
-      token,
+      sha256(token),
       expiresAt
     );
     setSessionCookie(res, token, env);
@@ -163,9 +172,9 @@ module.exports = function authRoutes({ db, sms, env }) {
          FROM sessions s JOIN users u ON u.id = s.user_id
          WHERE s.token = ?`
       )
-      .get(token);
+      .get(sha256(token));
     if (session) {
-      db.prepare(`DELETE FROM sessions WHERE token = ?`).run(token);
+      db.prepare(`DELETE FROM sessions WHERE token = ?`).run(sha256(token));
       if (session.role === 'guest') {
         db.prepare(`DELETE FROM post_saves WHERE user_id = ?`).run(session.user_id);
         db.prepare(`DELETE FROM users WHERE id = ?`).run(session.user_id);
