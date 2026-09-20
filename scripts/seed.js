@@ -60,4 +60,8 @@ seed.posts.forEach((item, i) => {
 
 console.log(`已导入 ${seed.posts.length} 条祷告事项：`);
 for (const tag of Object.keys(counts)) console.log(`  ${tag}: ${counts[tag]} 条`);
+// 强制将 WAL 中的数据合入主库并截断，确保后续进程/网络文件系统上立即可见
+try {
+  db.pragma('wal_checkpoint(TRUNCATE)');
+} catch {}
 db.close();
