@@ -10,6 +10,12 @@ BUNDLED="/app/seed-db/app.db"
 
 mkdir -p "$(dirname "$DB_FILE")"
 
+# 重置模式：RESET_DB=true 时强制用镜像内置库覆盖（用于数据损坏/恢复演示数据）
+if [ "$RESET_DB" = "true" ] && [ -f "$BUNDLED" ]; then
+  echo "[entrypoint] RESET_DB=true，重置为演示数据库..."
+  rm -f "$DB_FILE" "$DB_FILE-wal" "$DB_FILE-shm"
+fi
+
 if [ -f "$DB_FILE" ]; then
   echo "[entrypoint] 已有数据库 ($DB_FILE)，直接启动"
 else
