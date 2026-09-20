@@ -22,6 +22,10 @@ RUN npm install --include=dev
 COPY . .
 RUN npm run build
 
+# 预置一份 seed 好的演示数据库（构建期生成，供首次启动时复制到持久卷）
+RUN mkdir -p /app/seed-db \
+    && DB_PATH=/app/seed-db/app.db npm run seed >/dev/null 2>&1
+
 # 清理编译工具链，减小镜像体积（依赖已编译完成，运行时不再需要）
 RUN apt-get purge -y python3 make g++ && apt-get autoremove -y \
     && rm -rf /root/.cache /root/.node-gyp /tmp/*

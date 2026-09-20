@@ -1,18 +1,28 @@
 #!/bin/sh
-# 启动脚本：空库时自动填充演示数据
-# - 数据库已存在（挂载了持久卷且有数据）→ 直接启动，绝不覆盖
-# - 数据库不存在（首次部署/新卷）→ 跑一次 seed 填充演示内容
+# 启动脚本：确保数据库就绪
+# 优先级：持久卷已有库 > 从镜像内置的演示库复制 > 现场跑 seed
+# 已有库时绝不覆盖，保护线上数据。
 
 set -e
 
 DB_FILE="${DB_PATH:-/data/app.db}"
+BUNDLED="/app/seed-db/app.db"
 
-if [ ! -f "$DB_FILE" ]; then
-  echo "[entrypoint] 数据库不存在，正在填充演示数据 (npm run seed)..."
-  npm run seed
-  echo "[entrypoint] 演示数据填充完成"
+mkdir -p "$(dirname "$DB_FILE")"
+
+if [ -f "$DB_FILE" ]; then
+  echo "[entrypoint] 已有数据库 ($DB_FILE)，直接启动"
 else
-  echo "[entrypoint] 已有数据库 ($DB_FILE)，跳过 seed"
+  if [ -f "$BUNDLED" ]; then
+    echo "[entrypoint] 从镜像复制演示数据库到 $DB_FILE ..."
+    cp "$BUNDLED" "$DB_FILE"
+    rm -f "$DB_FILE-wal" "$DB_FILE-shm"
+    echo "[entrypoint] 演示数据就绪"
+  else
+    echo "[entrypoint] 镜像内无预置库，运行 npm run seed ..."
+    npm run seed
+    echo "[entrypoint] seed 完成"
+  fi
 fi
 
 exec npm start
