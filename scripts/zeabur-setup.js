@@ -34,22 +34,22 @@ async function gql(query, variables = {}) {
   return data;
 }
 
-// 需要配置的变量（敏感值从环境或默认占位）
+// 需要配置的变量（敏感值仅从环境提供；缺失的安全敏感项跳过并警告，绝不使用仓库内默认值）
 function wantedVars() {
   const phones = process.env.ADMIN_PHONE || '13800000000';
-  const secret =
-    process.env.SESSION_SECRET ||
-    '6f232f7c8de14ff180a9ee9ee3b166add7507ce06079c2b84f6f4111dd505d40';
-  return {
+  const vars = {
     HOST: '0.0.0.0',
     DB_PATH: '/data/app.db',
     TRUST_PROXY: 'true',
     COOKIE_SECURE: 'true',
     NODE_ENV: 'production',
-    SESSION_SECRET: secret,
     ADMIN_PHONES: phones,
-    SMS_PROVIDER: 'mock'
+    // 默认 aliyun：生产使用 mock 短信会导致验证码回显认证绕过；
+    // 未配置阿里云凭证时服务端 fail-closed 拒绝启动，错误信息会明确提示
+    SMS_PROVIDER: process.env.SMS_PROVIDER || 'aliyun'
   };
+  if (process.env.SESSION_SECRET) vars.SESSION_SECRET = process.env.SESSION_SECRET;
+  return vars;
 }
 
 (async () => {
@@ -93,6 +93,10 @@ function wantedVars() {
   if (!targets.length) {
     console.error('❌ 未找到目标服务');
     process.exit(1);
+  }
+
+  if (!process.env.SESSION_SECRET) {
+    console.error('⚠️  未提供 SESSION_SECRET 环境变量，本次跳过写入；请到 Zeabur 控制台手动设置为随机长字符串');
   }
 
   // 2. 批量配置变量
