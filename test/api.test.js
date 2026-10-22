@@ -515,3 +515,29 @@ test('安全响应头', async () => {
   assert.equal(res.headers['x-frame-options'], 'DENY');
   assert.equal(res.headers['referrer-policy'], 'no-referrer');
 });
+
+test('生产环境 fail-closed：mock 短信通道禁止启动', () => {
+  // NODE_ENV=production + 默认 SMS_PROVIDER=mock → createSmsProvider 必须抛错
+  assert.throws(
+    () => createApp({ env: testEnv({ NODE_ENV: 'production' }) }),
+    /SMS_PROVIDER/
+  );
+});
+
+test('生产环境 devCode 不进入 HTTP 响应', async () => {
+  // 注入会返回 devCode 的自定义 provider，验证响应门控这层独立防御
+  const gated = createApp({
+    env: testEnv({
+      NODE_ENV: 'production',
+      SMS_PROVIDER: 'aliyun',
+      ALIYUN_ACCESS_KEY_ID: 'test-id',
+      ALIYUN_ACCESS_KEY_SECRET: 'test-secret',
+      ALIYUN_SIGN_NAME: '测试签名',
+      ALIYUN_TEMPLATE_CODE: 'SMS_TEST'
+    }),
+    sms: { send: async () => ({ provider: 'mock', devCode: '654321' }) }
+  });
+  const res = await request(gated.app).post('/api/auth/send-code').send({ phone: '13800000099' });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.devCode, undefined);
+});

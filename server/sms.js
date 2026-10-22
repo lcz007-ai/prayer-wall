@@ -46,6 +46,11 @@ function createSmsProvider(env) {
   if (env.SMS_PROVIDER === 'aliyun') {
     return new AliyunSmsProvider(env);
   }
+  // fail-closed：mock 通道会把验证码回显进 HTTP 响应（devCode），
+  // 生产环境配置遗漏/拼写错误时必须拒绝启动，而不是静默回退 mock 导致认证绕过。
+  if (env.NODE_ENV === 'production') {
+    throw new Error('生产环境必须配置 SMS_PROVIDER=aliyun（mock 通道禁止用于生产）');
+  }
   return new MockSmsProvider();
 }
 

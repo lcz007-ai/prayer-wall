@@ -86,7 +86,9 @@ module.exports = function authRoutes({ db, sms, env }) {
       rec.lastSentAt = Date.now();
 
       const result = await sms.send(phone, code);
-      res.json({ ok: true, ...(result.devCode ? { devCode: result.devCode } : {}) });
+      // 第二层防御：devCode 仅限非生产环境回显，避免验证码进入 HTTP 响应
+      const devEcho = result.devCode && env.NODE_ENV !== 'production';
+      res.json({ ok: true, ...(devEcho ? { devCode: result.devCode } : {}) });
     } catch (err) {
       next(err);
     }
