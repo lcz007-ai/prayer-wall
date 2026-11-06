@@ -34,12 +34,15 @@ async function gql(query, variables = {}) {
   return data;
 }
 
-// 需要配置的变量（敏感值从环境或默认占位）
+// 需要配置的变量（敏感值必须从环境提供，禁止硬编码默认值）
 function wantedVars() {
   const phones = process.env.ADMIN_PHONE || '13800000000';
-  const secret =
-    process.env.SESSION_SECRET ||
-    '6f232f7c8de14ff180a9ee9ee3b166add7507ce06079c2b84f6f4111dd505d40';
+  const secret = process.env.SESSION_SECRET;
+  if (!secret) {
+    console.error('❌ 缺少 SESSION_SECRET 环境变量，请先执行：');
+    console.error("   export SESSION_SECRET=$(node -p \"require('crypto').randomBytes(32).toString('hex')\")");
+    process.exit(1);
+  }
   return {
     HOST: '0.0.0.0',
     DB_PATH: '/data/app.db',
